@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Garage | 仮想エンジン制御デモ</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#090909;color:#f7f7f7;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}.wrap{max-width:1150px;margin:14px auto;padding:24px 16px;border:1px solid #303030;border-radius:18px;background:#050505}.head{display:flex;justify-content:space-between;gap:10px;align-items:center}.head h1{font-size:22px;margin:0}.badge{background:#242424;border-radius:24px;padding:5px 12px;font-size:13px;font-weight:700;color:#ccc}.sub{color:#b7b7b7;margin:14px 0 34px;font-size:15px}.gauges{display:flex;justify-content:space-between;align-items:end;margin-bottom:16px}.small{font-size:14px;color:#999}.value{font-weight:650;font-size:38px;line-height:1.25;font-variant-numeric:tabular-nums}.unit{font-size:13px;font-weight:400}.right{text-align:right}.chart{width:100%;height:165px;background:#222;border-radius:12px;display:block}.legend{display:flex;justify-content:space-between;gap:5px;font-size:14px;margin:18px 0 14px}.range{display:block;width:100%;accent-color:#20b59e;cursor:pointer;margin:0;height:22px}.status{display:flex;justify-content:space-between;align-items:center;font-size:16px;margin-top:18px;margin-bottom:20px}.g{color:#a8a8a8;font-variant-numeric:tabular-nums}.reset{width:100%;border:1px solid #bbb;border-radius:10px;background:transparent;color:inherit;font:inherit;padding:14px;cursor:pointer}.reset:hover{background:#252525}.note{font-size:12px;color:#888;margin-top:14px}@media(max-width:480px){.wrap{margin:5px;padding:16px 12px}.head h1{font-size:17px}.badge{font-size:10px;padding:5px 7px}.sub{font-size:13px;margin-bottom:26px}.value{font-size:31px}.chart{height:135px}.legend{font-size:11px}}
+</style>
+</head>
+<body>
+<main class="wrap" id="sg-demo">
+  <div class="head"><h1>仮想エンジン制御デモ</h1><span class="badge">概念シミュレーター</span></div>
+  <p class="sub">加速度を変えると、仮想回転数とシフト動作が変わります。実際の音は鳴りません。</p>
+  <div class="gauges"><div><div class="small">VIRTUAL RPM</div><div class="value"><span id="rpm">1,200</span> <span class="unit">rpm</span></div></div><div class="right"><div class="small">GEAR</div><div class="value" id="gear">1</div></div></div>
+  <svg class="chart" id="graph" viewBox="0 0 800 160" preserveAspectRatio="none" role="img" aria-label="仮想エンジン回転数の履歴グラフ"><g stroke="#414141" stroke-width="1"><path d="M0 40H800 M0 80H800 M0 120H800"/></g><text x="400" y="20" text-anchor="middle" font-size="14" fill="#a1a1a1">RPM HISTORY</text><path id="trace" d="M0 126 L800 126" fill="none" stroke="#20b59e" stroke-width="3" vector-effect="non-scaling-stroke"/></svg>
+  <div class="legend"><span>減速・ブレーキ</span><span>巡航</span><span>強い加速</span></div>
+  <input class="range" id="accel" aria-label="加速度の指定" type="range" min="-100" max="100" value="0" step="1">
+  <div class="status"><strong id="state">巡航</strong><span class="g" id="g">+0.00 G</span></div>
+  <button class="reset" type="button" id="reset">リセット</button>
+  <p class="note">※サウンド生成なしの説明用デモです。表示値は実車の計測値ではありません。</p>
+</main>
+<script>
+(function(){
+'use strict';
+const root=document.getElementById('sg-demo');
+if(!root || root.dataset.running==='1') return;
+root.dataset.running='1';
+const $=id=>root.querySelector('#'+id);
+const slider=$('accel'),rpmDisplay=$('rpm'),gearDisplay=$('gear'),stateDisplay=$('state'),gDisplay=$('g'),trace=$('trace');
+let rpm=1200,gear=1,shiftTime=0,lastShift=-5000,history=Array(100).fill(1200),lastFrame=performance.now(),lastHistory=0;
+$('reset').addEventListener('click',()=>{slider.value='0';rpm=1200;gear=1;shiftTime=0;lastShift=-5000;history=Array(100).fill(1200);});
+function frame(now){
+ if(!root.isConnected)return;
+ const dt=Math.min(Math.max((now-lastFrame)/1000,0),0.05);lastFrame=now;
+ const u=Number(slider.value)/100, g=u*0.3;
+ gDisplay.textContent=(g>=0?'+':'')+g.toFixed(2)+' G';
+ stateDisplay.textContent=u>0.6?'強い加速':u>0.12?'通常加速':u< -0.15?'減速・ブレーキ':'巡航';
+ if(shiftTime>0){shiftTime-=dt;rpm+=(Math.max(1050,rpm-2500)-rpm)*Math.min(1,dt*13);}
+ else if(u>0.12){rpm+=dt*(750+u*2300);if(rpm>=(u>0.6?5800:4700)&&now-lastShift>900&&gear<8){gear++;shiftTime=0.26;lastShift=now;}}
+ else if(u< -0.15){rpm-=dt*(900+Math.abs(u)*1600);if(rpm<1500&&gear>1&&now-lastShift>900){gear--;rpm=2600;lastShift=now;}}
+ else{rpm+=(1200+gear*150-rpm)*Math.min(1,dt*1.5);}
+ rpm=Math.max(850,Math.min(6400,rpm));
+ rpmDisplay.textContent=Math.round(rpm).toLocaleString('ja-JP');gearDisplay.textContent=gear;
+ gearDisplay.style.color=(now-lastShift<300?'#20b59e':'');
+ if(now-lastHistory>50){history.push(rpm);history.shift();lastHistory=now;trace.setAttribute('d',history.map((v,i)=>(i?'L':'M')+(i*800/99).toFixed(2)+' '+(145-v/6500*120).toFixed(2)).join(' '));}
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
